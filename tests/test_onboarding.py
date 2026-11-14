@@ -1,6 +1,6 @@
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDialog
 
 from orbit.storage import Config, Schedule, Weekly, load_config, save_config
 from orbit.ui.onboarding import OnboardingDialog, WheelColumn
@@ -12,31 +12,27 @@ def test_onboarding_dialog_has_no_system_frame(qt_app):
     dialog.close()
 
 
-def test_time_wheel_changes_value_when_dragged(qt_app):
+def test_onboarding_close_button_closes_borderless_window(qt_app):
+    dialog = OnboardingDialog(Config())
+    dialog.close_button.click()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+
+
+def test_time_wheel_tracks_mouse_drag_and_snaps_to_row(qt_app):
     column = WheelColumn(23, 10, "小时")
     column.show()
     qt_app.processEvents()
-    start = QPoint(30, 22)
-    global_start = QPointF(column.current.mapToGlobal(start))
+    QTest.mousePress(column, Qt.MouseButton.LeftButton, pos=QPoint(34, 56))
+    QTest.mouseMove(column, QPoint(34, 30), 80)
+    QTest.mouseMove(column, QPoint(34, 8), 80)
+    assert column.value() != 10
+    QTest.mouseRelease(column, Qt.MouseButton.LeftButton, pos=QPoint(34, 8))
+    QTest.qWait(700)
+    assert abs(column._position - round(column._position)) < 0.01
 
-    def send(event_type, local_y, button, buttons):
-        local = QPointF(30, local_y)
-        global_pos = QPointF(global_start.x(), global_start.y() + local_y - start.y())
-        event = QMouseEvent(
-            event_type,
-            local,
-            global_pos,
-            button,
-            buttons,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        QApplication.sendEvent(column.current, event)
-
-    send(QEvent.Type.MouseButtonPress, 22, Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton)
-    send(QEvent.Type.MouseMove, 0, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton)
-    send(QEvent.Type.MouseButtonRelease, 0, Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton)
-
-    assert column.value() == 11
+    column._type_digit("2")
+    column._type_digit("0")
+    assert column.value() == 20
     column.close()
 
 

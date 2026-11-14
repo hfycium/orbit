@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 from datetime import date
+from time import monotonic
 
-from PySide6.QtCore import QTime, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QTime,
+    QTimer,
+    Qt,
+    Signal,
+    QVariantAnimation,
+)
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
@@ -13,7 +21,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -44,117 +51,205 @@ def _parse_time(value: str | None, fallback: str) -> QTime:
     return parsed if parsed.isValid() else QTime.fromString(fallback, "HH:mm")
 
 
-def _time_value(hour: QSpinBox, minute: QSpinBox) -> str:
+def _time_value(hour: "WheelColumn", minute: "WheelColumn") -> str:
     return f"{hour.value():02d}:{minute.value():02d}"
 
 
 class WheelColumn(QWidget):
-    """一列可滚动、可键盘微调、可直接键入的数字滚轮。"""
+    """循环数字滚轮：数字跟手移动，松手后惯性滑动并吸附到整格。"""
 
     valueChanged = Signal(int)
 
     def __init__(self, maximum: int, value: int, suffix: str = "", parent=None):
         super().__init__(parent)
         self._maximum = maximum
-        self._suffix = suffix
-        self._drag_origin_y: float | None = None
-        self._drag_last_steps = 0
+        self._row_height = 38
+        self._value = value % (maximum + 1)
+        self._position = float(50 * (maximum + 1) + self._value)
+        self._entry_buffer = ""
+        self._press_y = 0.0
+        self._press_position = self._position
+        self._last_y = 0.0
+        self._last_time = 0.0
+        self._velocity = 0.0
+        self._drag_active = False
         self._dragging = False
         self.setObjectName("wheelColumn")
-        self.setFixedWidth(66)
+        self.setFixedSize(70, self._row_height * 3)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
-        layout.setSpacing(0)
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(150)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.valueChanged.connect(self._set_position)
+        self._entry_timer = QTimer(self)
+        self._entry_timer.setSingleShot(True)
+        self._entry_timer.setInterval(900)
+        self._entry_timer.timeout.connect(self._clear_entry_buffer)
+        self.setToolTip(f"拖动或滚动选择{suffix}；聚焦后可用 ↑ ↓ 或键入数字")
 
-        self.previous = QLabel()
-        self.previous.setObjectName("wheelNeighbor")
-        self.current = _PaddedSpinBox()
-        self.current.setObjectName("wheelValue")
-        self.current.setRange(0, maximum)
-        self.current.setWrapping(True)
-        # NoButtons on the Windows style collapses QSpinBox's internal line edit to 1px.
-        # Keep the native spin subcontrols enabled and hide their hit areas in QSS instead.
-        self.current.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
-        self.current.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current.setKeyboardTracking(True)
-        self.current.setAccelerated(True)
-        self.current.setFixedHeight(48)
-        self.current.setValue(value)
-        self.next = QLabel()
-        self.next.setObjectName("wheelNeighbor")
+    def _set_position(self, position: float) -> None:
+        self._position = float(position)
+        value = int(self._position + 0.5) % (self._maximum + 1)
+        if value != self._value:
+            self._value = value
+            self.valueChanged.emit(value)
+        self.update()
 
-        for label in (self.previous, self.next):
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setFixedHeight(30)
-            label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            label.installEventFilter(self)
-        self.current.installEventFilter(self)
-        self.current.lineEdit().installEventFilter(self)
+    def _animate_to(self, target: float, duration: int = 150) -> None:
+        self._animation.stop()
+        self._animation.setDuration(duration)
+        self._animation.setStartValue(self._position)
+        self._animation.setEndValue(float(target))
+        self._animation.start()
 
-        layout.addWidget(self.previous)
-        layout.addWidget(self.current)
-        layout.addWidget(self.next)
-        self.current.valueChanged.connect(self._sync)
-        self.current.valueChanged.connect(self.valueChanged)
-        self._sync(self.current.value())
-        self.setToolTip(f"上下拖动、滚动或使用 ↑ ↓ 调整{suffix}；也可以直接输入数字")
+    def _settle_drag(self) -> None:
+        fling = max(-18.0, min(18.0, self._velocity * 0.18))
+        target = round(self._position + fling)
+        duration = min(520, max(150, 130 + int(abs(target - self._position) * 18)))
+        self._animate_to(target, duration)
 
-    def _sync(self, value: int) -> None:
-        self.previous.setText(f"{(value - 1) % (self._maximum + 1):02d}")
-        self.next.setText(f"{(value + 1) % (self._maximum + 1):02d}")
+    def set_value(self, value: int, animated: bool = True) -> None:
+        period = self._maximum + 1
+        value %= period
+        delta = (value - self._value + period // 2) % period - period // 2
+        if delta:
+            target = round(self._position) + delta
+            if animated:
+                self._animate_to(target)
+            else:
+                self._animation.stop()
+                self._set_position(target)
 
-    def eventFilter(self, watched, event) -> bool:
-        if event.type() == event.Type.Wheel:
-            delta = event.angleDelta().y()
-            if delta:
-                self.current.stepBy(1 if delta > 0 else -1)
-                return True
-        if event.type() == event.Type.MouseButtonPress:
-            if event.button() == Qt.MouseButton.LeftButton:
-                self._drag_origin_y = event.globalPosition().y()
-                self._drag_last_steps = 0
-                self._dragging = False
-                self.current.setFocus()
-        elif (
-            event.type() == event.Type.MouseMove
-            and self._drag_origin_y is not None
-            and event.buttons() & Qt.MouseButton.LeftButton
-        ):
-            distance = event.globalPosition().y() - self._drag_origin_y
-            if not self._dragging and abs(distance) >= 7:
+    def _clear_entry_buffer(self) -> None:
+        self._entry_buffer = ""
+
+    def _type_digit(self, digit: str) -> None:
+        candidate = (self._entry_buffer + digit)[-2:]
+        parsed = int(candidate)
+        if parsed <= self._maximum:
+            self._entry_buffer = candidate
+        else:
+            self._entry_buffer = digit
+            parsed = int(digit)
+        self.set_value(parsed, animated=False)
+        self._entry_timer.start()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._animation.stop()
+            self._drag_active = True
+            self._dragging = False
+            self._press_y = event.position().y()
+            self._press_position = self._position
+            self._last_y = self._press_y
+            self._last_time = monotonic()
+            self._velocity = 0.0
+            self.setFocus()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_active:
+            y = event.position().y()
+            distance = y - self._press_y
+            if not self._dragging and abs(distance) >= 4:
                 self._dragging = True
             if self._dragging:
-                steps = max(1, int((abs(distance) + 8) / 22))
-                steps = steps if distance < 0 else -steps
-                delta = steps - self._drag_last_steps
-                if delta:
-                    self.current.stepBy(delta)
-                    self._drag_last_steps = steps
-                return True
-        elif event.type() == event.Type.MouseButtonRelease:
+                self._set_position(self._press_position - distance / self._row_height)
+                now = monotonic()
+                elapsed = max(now - self._last_time, 0.001)
+                instant_velocity = -(y - self._last_y) / elapsed / self._row_height
+                self._velocity = self._velocity * 0.35 + instant_velocity * 0.65
+                self._last_y = y
+                self._last_time = now
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._drag_active and event.button() == Qt.MouseButton.LeftButton:
             was_dragging = self._dragging
-            self._drag_origin_y = None
-            self._drag_last_steps = 0
+            self._drag_active = False
             self._dragging = False
             if was_dragging:
-                return True
-        return super().eventFilter(watched, event)
+                self._settle_drag()
+            else:
+                offset = (event.position().y() - self.height() / 2) / self._row_height
+                self._animate_to(round(self._position + offset))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        delta = event.angleDelta().y()
+        if delta:
+            self.set_value(self._value + (1 if delta > 0 else -1), animated=True)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Up:
+            self.set_value(self._value + 1)
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Down:
+            self.set_value(self._value - 1)
+            event.accept()
+            return
+        if event.text().isdigit():
+            self._type_digit(event.text())
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._clear_entry_buffer()
+            self._entry_timer.stop()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setClipRect(self.rect())
+        center_y = self.height() / 2
+
+        band = self.rect().adjusted(5, round(center_y - self._row_height / 2 + 2), -5,
+                                    round(center_y - self._row_height / 2 + 2) + self._row_height - self.height())
+        painter.setPen(QColor(166, 184, 255, 48))
+        painter.setBrush(QColor(166, 184, 255, 18))
+        painter.drawRoundedRect(band, 8, 8)
+
+        first = int(self._position) - 2
+        last = int(self._position) + 3
+        for row in range(first, last + 1):
+            y = center_y + (row - self._position) * self._row_height
+            distance = abs(y - center_y)
+            fade = min(distance / (self._row_height * 1.45), 1.0)
+            font = QFont("Segoe UI", round(24 - fade * 9))
+            font.setWeight(
+                QFont.Weight.DemiBold
+                if int(self._position + 0.5) == row
+                else QFont.Weight.Normal
+            )
+            color = QColor(COLORS["text"])
+            color.setAlpha(round(255 - fade * 150))
+            painter.setFont(font)
+            painter.setPen(color)
+            text_rect = self.rect().adjusted(0, round(y - self._row_height / 2), 0,
+                                             round(y + self._row_height / 2) - self.height())
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter,
+                             f"{row % (self._maximum + 1):02d}")
+
+    def closeEvent(self, event) -> None:
+        self._animation.stop()
+        self._entry_timer.stop()
+        super().closeEvent(event)
 
     def value(self) -> int:
-        return self.current.value()
-
-
-class _PaddedSpinBox(QSpinBox):
-    def textFromValue(self, value: int) -> str:
-        return f"{value:02d}"
-
-    def valueFromText(self, text: str) -> int:
-        try:
-            return int(text)
-        except ValueError:
-            return 0
-
+        return self._value
 
 class TimeWheel(QWidget):
     """小时 / 分钟两列及其所属字段标题。"""
@@ -277,8 +372,9 @@ class OnboardingDialog(QDialog):
             "eyebrow",
             "title",
             "subtitle",
+            "windowBar",
         ):
-            widget = self if name == "dialog" else self.findChild(QWidget, name)
+            widget = self.findChild(QWidget, name)
             if widget is not None:
                 widget.installEventFilter(self)
 
@@ -328,9 +424,21 @@ class OnboardingDialog(QDialog):
         layout.setContentsMargins(42, 34, 42, 30)
         layout.setSpacing(0)
 
+        window_bar = QWidget()
+        window_bar.setObjectName("windowBar")
+        bar_layout = QHBoxLayout(window_bar)
+        bar_layout.setContentsMargins(0, 0, 0, 0)
         eyebrow = QLabel("欢迎使用 Orbit")
         eyebrow.setObjectName("eyebrow")
-        layout.addWidget(eyebrow)
+        bar_layout.addWidget(eyebrow)
+        bar_layout.addStretch(1)
+        self.close_button = QPushButton("×")
+        self.close_button.setObjectName("windowCloseButton")
+        self.close_button.setFixedSize(32, 32)
+        self.close_button.setToolTip("关闭设置窗口")
+        self.close_button.clicked.connect(self.reject)
+        bar_layout.addWidget(self.close_button)
+        layout.addWidget(window_bar)
         title = QLabel("先定下你的日常节奏")
         title.setObjectName("title")
         layout.addWidget(title)
@@ -515,10 +623,13 @@ class OnboardingDialog(QDialog):
     @staticmethod
     def _style_sheet() -> str:
         return f"""
-            QDialog {{ background: {COLORS['background']}; color: {COLORS['text']}; }}
+            QDialog {{ background: {COLORS['background']}; color: {COLORS['text']}; border: 1px solid rgba(255, 255, 255, 28); border-radius: 14px; }}
             QWidget#previewRail {{ background: {COLORS['rail']}; border-right: 1px solid {COLORS['border']}; }}
             QLabel#brand {{ color: {COLORS['text']}; font-size: 20px; font-weight: 600; }}
             QLabel#eyebrow {{ color: {COLORS['quiet']}; font-size: 13px; }}
+            QPushButton#windowCloseButton {{ color: {COLORS['muted']}; background: transparent; border: 1px solid transparent; border-radius: 9px; font-size: 22px; padding: 0; }}
+            QPushButton#windowCloseButton:hover {{ color: #ffffff; background: #8f3d4a; border-color: #a94a58; }}
+            QPushButton#windowCloseButton:pressed {{ background: #74303c; }}
             QLabel#title {{ color: {COLORS['text']}; font-size: 27px; font-weight: 600; margin-top: 6px; }}
             QLabel#subtitle {{ color: {COLORS['muted']}; font-size: 14px; margin-top: 8px; }}
             QLabel#summary {{ color: {COLORS['muted']}; font-size: 12px; margin-top: 16px; }}
@@ -534,10 +645,6 @@ class OnboardingDialog(QDialog):
             QLabel#timeLabel {{ color: {COLORS['muted']}; font-size: 12px; }}
             QLabel#timeColon {{ color: {COLORS['quiet']}; font-size: 20px; padding-top: 23px; }}
             QWidget#wheelColumn {{ background: transparent; }}
-            QLabel#wheelNeighbor {{ color: {COLORS['quiet']}; font-size: 14px; background: transparent; }}
-            QSpinBox#wheelValue {{ color: {COLORS['text']}; background: #252a32; border: 1px solid #424b5a; border-radius: 9px; font-size: 24px; font-weight: 600; selection-background-color: #687da7; padding: 0; }}
-            QSpinBox#wheelValue:focus {{ background: #292f3b; border-color: {COLORS['accent']}; }}
-            QSpinBox#wheelValue::up-button, QSpinBox#wheelValue::down-button {{ width: 0; border: 0; }}
             QScrollArea#pageScroll {{ background: transparent; }}
             QWidget#pageContent, QScrollArea#pageScroll QWidget#qt_scrollarea_viewport {{ background: {COLORS['background']}; }}
             QLabel#lineHint {{ color: {COLORS['warning']}; font-size: 12px; padding-top: 7px; }}
