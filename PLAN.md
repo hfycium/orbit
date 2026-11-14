@@ -286,20 +286,24 @@ y  = min(max(y, work.y), max(work.y + work.h - h, work.y))   # 球被拖出工�
 倾向 **Python + PySide6**：`httpx` / `sqlite3` / `watchdog` / `keyring` 一整套现成，改一行就能看效果。  
 代价：打包约 60–100MB，冷启动 1–2 秒，透明窗口在个别显卡驱动下有黑底问题。
 
+具体到每个仓库的文件、行号、许可证与要避开的缺陷，见 **`docs/reuse-map.md`**（2026-11-14 逐仓库核实）。本节只留结论。
+
 | 需求             | 需要的库 / API                                                                             | 抄哪段                                         |
 | -------------- | -------------------------------------------------------------------------------------- | ------------------------------------------- |
-| 无边框透明置顶球、不占任务栏 | `FramelessWindowHint \| WindowStaysOnTopHint \| Tool` + `WA_TranslucentBackground`     | desktop_calendar 的窗口初始化                     |
-| 球边缘进度环         | `QPainter` 抗锯齿 + `drawArc`（上色用 `QConicalGradient`）                                     | ProgressPies 的环形绘制                          |
-| 可拖拽            | `mousePress/Move/Release`，记 `globalPosition() - frameGeometry().topLeft()`             | desktop_calendar                            |
-| 点击与拖拽区分        | 自写约 10 行，累计位移阈值 4px                                                                    | 无现成，tiaod 是网页没有此问题                          |
+| 无边框透明置顶球、不占任务栏 | `FramelessWindowHint \| WindowStaysOnTopHint \| Tool` + `WA_TranslucentBackground`（**必须在 `show()` 前设**） | desktop_calendar `floating_ball.py:49` 的标志组合，但需 PyQt6 → PySide6 改名 |
+| 可拖拽            | 按下记**绝对偏移** `globalPosition() - frameGeometry().topLeft()`，移动时 `globalPosition() - 偏移` | **ProgressPies `widget.py:238`（已是 PySide6）**。不要用 desktop_calendar 的 `self.x()+delta` 逐帧累加——跨不同 DPI 的屏幕会累积漂移 |
+| 点击与拖拽区分        | 位移 `manhattanLength() < 4` 才算点击                                                                 | **同上，ProgressPies 已实现，数字正好等于本规格**。注意它没有时间阈值，也不要加：按住 0.4 秒再松手仍算点击 |
+| 球边缘进度环         | `QPainter` 抗锯齿 + 描边折线 + `QConicalGradient` 上色                                          | 形变态按折线画（自己算）。非形变态的角度约定与端点光点算法参考 desktop_calendar `ball_body.py:300`；**100% 时改画整圆**这条判据参考 ProgressPies `card.py:36` |
 | 环 → 横条 → 面板的展开 | 自绘 morph：单一 `t ∈ [0,1]` 驱动全部几何（弧长 / 横条长 / 宽高 / 圆角 / 内容透明度），`QPropertyAnimation` 只推 `t` | **没有现成的**。LiteCount 只是矩形缩放，参考动画节奏即可，几何必须自己算 |
 | 悬停延迟           | `QTimer` 300ms 单次触发 + `leaveEvent` 取消，避免 `enterEvent` 直接展开                             | 自己写                                         |
-| 位置与大小持久化       | `QSettings` 或 JSON                                                                     | desktop_calendar 的 `window_pos.json`        |
-| 三种模式 + 日界线     | `datetime` + 自写「归属哪天」函数 + 模式解析器（返回当场生效的起止）                                             | **只抄 tiaod 的 `newDayBegins` 概念，代码别抄**       |
-| 睡觉提醒           | `QSystemTrayIcon.showMessage()`；要原生 Toast 再上 `winrt`                                   | DayBar 的通知逻辑                                |
-| 待办存储           | JSON + 临时文件替换（防写一半崩）                                                                   | desktop_calendar 的原子写入                      |
+| 位置与大小持久化       | JSON 存坐标；恢复时用 `QGuiApplication.screenAt()` 反查显示器，再拿**那块屏**的 `availableGeometry()` 钳制         | ProgressPies `widget.py:183`。只存坐标不存屏 → 副屏上的球重启后被拽回主屏 |
+| 鼠标穿透           | `Qt.WindowTransparentForInput`；改完标志必须再 `show()` 一次（对已显示窗口不生效）                            | ProgressPies `widget.py:463`                  |
+| 全屏应用在前台时自动隐藏   | `ctypes` 调 `GetForegroundWindow` + `MonitorFromWindow`，排除 Progman / WorkerW / Shell_TrayWnd     | Glass-Monitor `glass_ui.py:180`，纯函数不依赖 tkinter。**「自动隐藏」与「用户隐藏」必须是两个变量**，否则用户关掉球、切一次全屏就自己冒回来 |
+| 三种模式 + 日界线     | `datetime` + 自写「归属哪天」函数 + 模式解析器（返回当场生效的起止）                                             | **只抄 tiaod 的 `newDayBegins` 概念，代码别抄（该仓库无 LICENSE）** |
+| 睡觉提醒           | `QSystemTrayIcon.showMessage()`；被系统通知设置吃掉时退到自绘 toast                                  | 通道参考 DayBar（C#，只读思路）；备选自绘窗口参考 desktop_calendar `notifications.py` |
+| 待办存储           | JSON + 临时文件替换 + 滚动 `.bak`                                                             | `config.py` 已有原子写；`.bak` 回退参考 ProgressPies `store.py` |
 | 打包             | PyInstaller `--onefile --noconsole --icon`                                             | desktop_calendar 的 spec                     |
-| 未来 · AI 额度     | `httpx` + `keyring` + 抽象基类做适配层                                                         | NeonGauge 读本地凭证                             |
+| 未来 · AI 额度     | `httpx` + `keyring` + 抽象基类做适配层                                                         | **暂无参考实现**（此前写的 NeonGauge 不存在，已作废）。做之前单独调研 |
 | 未来 · agent 状态  | `http.server` / FastAPI + `watchdog` + `sqlite3`                                       | 无现成，自己设计                                    |
 
 ## 七、工程结构
@@ -309,7 +313,7 @@ y  = min(max(y, work.y), max(work.y + work.h - h, work.y))   # 球被拖出工�
 ```
 orbit/
 ├── src/orbit/
-│   ├── config.py           配置模型 + 原子写 + 每日记录裁剪/基准
+│   ├── config.py           配置模型 + 原子写 + 每日记录裁剪/基准  ← M1 迁到 storage/config.py
 │   ├── core/
 │   │   ├── clock.py        时刻解析、归属日、日界线校验（纯函数）
 │   │   ├── schedule.py     三种模式解析、临时调整、继承、日界线巡检
@@ -317,11 +321,22 @@ orbit/
 │   │   └── layout.py       面板落位（纯几何，不含 Qt）
 │   └── ui/
 │       ├── morph.py        形变几何：环 → 横条 → 面板（纯函数，不含 Qt）
-│       ├── morph_demo.py   形变原型窗口 + 离屏出图
+│       ├── morph_demo.py   形变原型窗口 + 离屏出图（留作几何调试工具，不删）
 │       └── onboarding.py   首启引导
+├── docs/reuse-map.md       开源组件复用地图（哪个仓库的哪个函数能用、哪个不能用）
+├── THIRD_PARTY_NOTICES.md  实际引入的第三方代码及其署名
 ├── tests/                  clock / schedule / progress / layout / morph / config
 └── pyproject.toml
 ```
+
+**M1 开工时第一次结构变动**（一次 `git mv`，只加不改逻辑）：
+
+- `src/orbit/config.py` → `src/orbit/storage/config.py`，新增 `storage/__init__.py`；持久化全部归 `storage/`，`ui/` 不直接读写文件
+- 新增 `src/orbit/app.py`（引导 → 球的总装）
+- 新增 `src/orbit/ui/ball.py`（球窗口）
+- `core/reminder.py`、`storage/todos.py`、`services/notifications.py`、`ui/panel.py`、`ui/settings.py` **不预建**，各自到用它的阶段再加
+
+不拆 `core/day_key.py`：归属日与窗口解析互相调用，拆开只会来回 import。`core/clock.py` 就是它。
 
 `core` 与 `ui/morph.py` 都不读系统时钟、不 import Qt，`now` 和 `t` 一律由外部传入——所以边界条件能逐条单测，不必开窗口点着看。
 
