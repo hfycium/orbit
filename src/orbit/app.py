@@ -12,18 +12,68 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from pathlib import Path
+
+from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from .core import compute, resolve
-from .storage import Config, WindowState, load_config, load_state, save_config, save_state
+from .storage import Config, WindowState, config_path, load_config, load_state, save_config, save_state
 from .ui.ball import BallWindow
 from .ui.onboarding import OnboardingDialog
 from .ui.theme import DARK
 
 REFRESH_MS = 1000
 TRAY_ICON_SIZE = 32
+INSTANCE_SERVER_NAME = "orbit-desktop-instance-v1"
+
+
+class SingleInstance:
+    """已有实例时转发唤醒请求，不再创建第二个球。"""
+
+    def __init__(
+        self,
+        app: QApplication,
+        activate,
+        name: str = INSTANCE_SERVER_NAME,
+        lock_path: Path | None = None,
+    ):
+        self.name = name
+        self.activate = activate
+        path = lock_path or config_path().parent / "orbit.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = QLockFile(str(path))
+        self.primary = self.lock.tryLock(0)
+        self.server = QLocalServer(app)
+        self.server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+        self.server.newConnection.connect(self._accept_connection)
+
+        if self.primary:
+            if not self.server.listen(name):
+                QLocalServer.removeServer(name)
+                self.server.listen(name)
+            return
+
+        socket = QLocalSocket()
+        socket.connectToServer(name)
+        if socket.waitForConnected(500):
+            socket.write(b"activate")
+            socket.waitForBytesWritten(500)
+
+    def _accept_connection(self) -> None:
+        while self.server.hasPendingConnections():
+            socket = self.server.nextPendingConnection()
+            if socket is None:
+                continue
+            socket.readyRead.connect(lambda client=socket: self._received(client))
+            if socket.bytesAvailable():
+                self._received(socket)
+
+    def _received(self, socket: QLocalSocket) -> None:
+        socket.readAll()
+        self.activate()
 
 
 def _tray_icon() -> QIcon:
@@ -68,6 +118,7 @@ class OrbitApp:
         self.ball.context_requested.connect(self._show_menu)
         self.ball.restore(load_state())
         self.ball.show()
+        self.ball.raise_()
 
         self._install_tray()
         self.refresh()
@@ -151,6 +202,19 @@ def main() -> int:
     app.setApplicationDisplayName("Orbit")
 
     orbit = OrbitApp(app)
+
+    def activate_existing() -> None:
+        target = app.activeModalWidget() or orbit.ball
+        if target is None:
+            return
+        if target is orbit.ball and not target.isVisible():
+            target.show()
+        target.raise_()
+        target.activateWindow()
+
+    instance = SingleInstance(app, activate_existing)
+    if not instance.primary:
+        return 0
     if not orbit.start():
         return 0
     return app.exec()

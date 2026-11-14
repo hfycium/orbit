@@ -4,8 +4,10 @@
 """
 
 import pytest
+from PySide6.QtTest import QTest
+from PySide6.QtNetwork import QLocalSocket
 
-from orbit.app import OrbitApp
+from orbit.app import OrbitApp, SingleInstance
 from orbit.storage import Config, Schedule, WindowState, load_config, load_state, save_config
 from orbit.ui.ball import BallWindow
 
@@ -91,6 +93,30 @@ def test_start_accepts_onboarding_and_persists(qt_app, orbit_home, monkeypatch):
 
     orbit.ball.hide()
     orbit.ball.deleteLater()
+
+
+def test_second_instance_activates_existing_instance(qt_app, tmp_path):
+    name = f"orbit-test-{id(qt_app)}"
+    lock_path = tmp_path / "orbit.lock"
+    activated = []
+    primary = SingleInstance(qt_app, lambda: activated.append(True), name, lock_path)
+    secondary = SingleInstance(qt_app, lambda: None, name, lock_path)
+
+    assert primary.primary is True
+    assert secondary.primary is False
+
+    # The in-process secondary cannot pump the primary server while its
+    # constructor waits synchronously, so exercise delivery through a socket.
+    socket = QLocalSocket()
+    socket.connectToServer(name)
+    assert socket.waitForConnected(1000)
+    socket.write(b"activate")
+    QTest.qWait(100)
+    assert activated == [True]
+
+    socket.disconnectFromServer()
+    primary.server.close()
+    primary.lock.unlock()
 
 
 def test_window_state_roundtrip_through_app(qt_app, orbit_home):
