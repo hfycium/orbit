@@ -105,9 +105,8 @@ class OrbitApp:
         save_state(WindowState(x, y))
 
     def _on_activated(self) -> None:
-        # 展开是 M2 的事。现在先什么都不做——留一个空实现，
-        # 比接一个半成品面板更容易看清 M2 到底要加什么。
-        pass
+        if self.ball is not None:
+            self.ball.toggle_expanded()
 
     # ------------------------------------------------------------------ 菜单
 

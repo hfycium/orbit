@@ -11,22 +11,25 @@ M1 只做「能看、能拖、能记住位置」。点击目前只发信号，�
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, QSize, Qt, Signal, QVariantAnimation
 from PySide6.QtGui import (
     QColor,
     QConicalGradient,
     QFont,
     QGuiApplication,
     QPainter,
+    QPainterPath,
     QPen,
     QRadialGradient,
 )
 from PySide6.QtWidgets import QWidget
 
 from ..core import PointerTracker, Rect, clamp_into_work
+from ..core.layout import place_panel
 from ..core.interaction import CLICK, DRAG
 from ..storage import WindowState
 from .theme import DARK, Theme
+from .morph import StripSpec, frame_at, motion_bounds
 
 DEFAULT_EDGE_MARGIN = 16
 
@@ -51,6 +54,18 @@ class BallWindow(QWidget):
         self._fallback = False
         self._tracker = PointerTracker()
         self._press_offset = QPointF()
+        self._morph: StripSpec | None = None
+        self._morph_t = 0.0
+        self._origin = QPointF()
+        self._motion_origin = QPointF()
+        self._expanded = False
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(260)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._on_morph_value)
+        self._anim.finished.connect(self._on_morph_finished)
+        self._panel_rect = Rect(0, 0, 0, 0)
+        self._motion_size = QSize(self.theme.window_size, self.theme.window_size)
 
         self.setWindowTitle("Orbit")
         self.setWindowFlags(
@@ -113,6 +128,77 @@ class BallWindow(QWidget):
     def position(self) -> tuple[int, int]:
         return self.x(), self.y()
 
+    def toggle_expanded(self) -> None:
+        if self._morph is None:
+            self._begin_expand()
+        else:
+            self._begin_collapse()
+
+    def _begin_expand(self) -> None:
+        center = QPointF(self.x() + self.width() / 2, self.y() + self.height() / 2)
+        work = self._work_area(center.toPoint())
+        down = center.y() <= work.y + work.h / 2
+        placement = place_panel(work, center.x(), center.y(), self.theme.ball_radius, 320, 96)
+        self._morph = StripSpec(
+            center.x(), center.y(), self.theme.ball_radius, placement.rect,
+            down=down, ratio=self._ratio, ring_width=self.theme.ring_width,
+            inset=self.theme.ring_inset,
+        )
+        left, top, right, bottom = motion_bounds(self._morph)
+        ball = (center.x() - self.theme.ball_radius - self.theme.window_margin,
+                center.y() - self.theme.ball_radius - self.theme.window_margin,
+                center.x() + self.theme.ball_radius + self.theme.window_margin,
+                center.y() + self.theme.ball_radius + self.theme.window_margin)
+        panel = placement.rect
+        bounds = (min(left, ball[0], panel.x), min(top, ball[1], panel.y),
+                  max(right, ball[2], panel.right), max(bottom, ball[3], panel.bottom))
+        self._origin = QPointF(bounds[0], bounds[1])
+        self._motion_origin = QPointF(bounds[0], bounds[1])
+        self._motion_size = QSize(max(1, round(bounds[2] - bounds[0])), max(1, round(bounds[3] - bounds[1])))
+        self._panel_rect = placement.rect
+        self._expanded = True
+        self._set_canvas(self._origin, self._motion_size)
+        self._animate(0.0, 1.0, 260)
+
+    def _begin_collapse(self) -> None:
+        if self._morph is None:
+            return
+        self._set_canvas(self._motion_origin, self._motion_size)
+        self._expanded = False
+        self._animate(self._morph_t, 0.0, 200)
+
+    def _animate(self, start: float, end: float, duration: int) -> None:
+        self._anim.stop()
+        self._anim.setDuration(duration)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic if end > start else QEasingCurve.Type.InCubic)
+        self._anim.setStartValue(start)
+        self._anim.setEndValue(end)
+        self._anim.start()
+
+    def _set_canvas(self, origin: QPointF, size: QSize) -> None:
+        self._origin = origin
+        self.setFixedSize(size)
+        self.move(round(origin.x()), round(origin.y()))
+
+    def _on_morph_value(self, value) -> None:
+        self._morph_t = float(value)
+        self.update()
+
+    def _on_morph_finished(self) -> None:
+        if self._morph is None:
+            return
+        if self._expanded:
+            rect = self._panel_rect
+            self._set_canvas(QPointF(rect.x, rect.y), QSize(round(rect.w), round(rect.h)))
+            self._origin = QPointF(rect.x, rect.y)
+        else:
+            spec = self._morph
+            size = self.theme.window_size
+            self._set_canvas(QPointF(spec.cx - size / 2, spec.cy - size / 2), QSize(size, size))
+            self._morph = None
+            self._morph_t = 0.0
+        self.update()
+
     # ------------------------------------------------------------------ 交互
 
     def mousePressEvent(self, event) -> None:
@@ -168,6 +254,10 @@ class BallWindow(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
+        if self._morph is not None:
+            self._paint_morph(painter)
+            return
+
         theme = self.theme
         center = QRectF(self.rect()).center()
         radius = theme.ball_radius
@@ -175,6 +265,71 @@ class BallWindow(QWidget):
         self._paint_body(painter, center, radius)
         self._paint_ring(painter, center)
         self._paint_text(painter, center)
+
+    def _paint_morph(self, painter: QPainter) -> None:
+        spec = self._morph
+        if spec is None:
+            return
+        frame = frame_at(self._morph_t, spec)
+
+        def at(point: tuple[float, float]) -> QPointF:
+            return QPointF(point[0] - self._origin.x(), point[1] - self._origin.y())
+
+        if frame.straight:
+            rect = frame.body_rect
+            body = QRectF(rect.x - self._origin.x(), rect.y - self._origin.y(), rect.w, rect.h)
+            path = QPainterPath()
+            radius = min(frame.corner, rect.h / 2)
+            path.addRoundedRect(body, radius, radius)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self.theme.body_outer)
+            painter.setOpacity(0.94)
+            painter.drawPath(path)
+            painter.setOpacity(1.0)
+            painter.setClipPath(path)
+        elif frame.body:
+            path = QPainterPath(at(frame.body[0]))
+            for point in frame.body[1:]:
+                path.lineTo(at(point))
+            path.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self.theme.body_outer)
+            painter.drawPath(path)
+
+        for points, color, alpha in (
+            (frame.track, self.theme.track, 0.22),
+            (frame.red, self.theme.accent_mid if not self._fallback else self.theme.text_muted, 1.0),
+        ):
+            if len(points) < 2:
+                continue
+            path = QPainterPath(at(points[0]))
+            for point in points[1:]:
+                path.lineTo(at(point))
+            pen = QPen(color, spec.ring_width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setOpacity(alpha)
+            painter.drawPath(path)
+        painter.setOpacity(1.0)
+        painter.setClipping(False)
+
+        if frame.ball_alpha > 0.01:
+            painter.setOpacity(frame.ball_alpha)
+            font = QFont("Segoe UI")
+            font.setPixelSize(14)
+            font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(font)
+            painter.setPen(self.theme.text)
+            box = QRectF(
+                spec.cx - spec.radius - self._origin.x(),
+                spec.cy - spec.radius - self._origin.y(),
+                spec.radius * 2,
+                spec.radius * 2,
+            )
+            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, percent_text(self._ratio))
+            painter.setOpacity(1.0)
 
     def _paint_body(self, painter: QPainter, center: QPointF, radius: float) -> None:
         gradient = QRadialGradient(center, radius)
