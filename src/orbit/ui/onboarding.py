@@ -212,6 +212,7 @@ class OnboardingDialog(QDialog):
     def __init__(self, config: Config | None = None, today: date | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Orbit · 作息设置")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setMinimumSize(920, 620)
         self.resize(1000, 680)
         self.setModal(True)
@@ -228,8 +229,36 @@ class OnboardingDialog(QDialog):
         root.addWidget(self._build_preview(), 0)
         root.addWidget(self._build_editor(), 1)
 
+        self._install_drag_regions()
         self._apply_mode(self._config.mode if self._config.mode in MODE_ORDER else "fixed")
         self._refresh_line_hint()
+
+    def _install_drag_regions(self) -> None:
+        """让无系统标题栏的窗口可从非交互区域拖动。"""
+        for name in (
+            "previewRail",
+            "brand",
+            "scheduleRing",
+            "summary",
+            "railDescription",
+            "editor",
+            "eyebrow",
+            "title",
+            "subtitle",
+        ):
+            widget = self if name == "dialog" else self.findChild(QWidget, name)
+            if widget is not None:
+                widget.installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            event.type() == event.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            handle = self.windowHandle()
+            if handle is not None and handle.startSystemMove():
+                return True
+        return super().eventFilter(watched, event)
 
     def _build_preview(self) -> QWidget:
         rail = QWidget()
@@ -246,6 +275,7 @@ class OnboardingDialog(QDialog):
         layout.addSpacing(24)
 
         self.ring = ScheduleRing()
+        self.ring.setObjectName("scheduleRing")
         layout.addWidget(self.ring, 0, Qt.AlignmentFlag.AlignHCenter)
         self.wake_summary = QLabel()
         self.wake_summary.setObjectName("summary")
