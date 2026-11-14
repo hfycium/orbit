@@ -80,7 +80,7 @@ Orbit 的 `src/orbit/core/`（纯函数、`now`/`t` 外部传入、不 import Qt
 - QFluentWidgets `common/config.py:263-273`：`themeChanged` / `themeChangedFinished` / `themeColorChanged` 三个信号 + `ConfigItem.valueChanged`；`common/style_sheet.py:15-66` 的 `StyleSheetManager.register()` 登记 widget，换主题时统一重刷。
 - Anki 的 `reduce_motion` 是**用户可配置项、默认开**（`qt/aqt/profiles.py:542-546`），`theme.py:179` 据此给 body 加 `reduce-motion` class；不是自动读系统。写文档时别写成「自动跟随系统」。
 
-**对 Orbit**：① `OrbitApp.refresh()` 每秒被调一次，但百分比大多数秒不变，应加「值没变就不 `update()`」的短路；② 未来「皮肤」只需 `Theme` 实例 + 一次重绘 + 一个信号，**现在不必建 `ui/stylesheet.py` 或注册机**（我们只有一个自绘 widget，QSS 对它无效）；③ 减弱动效可作为皮肤系统的前置项，按 Anki 的做法做成可配置开关。
+**对 Orbit**：① **已具备，不必再改**——`BallWindow.set_progress` 早就用 `1e-4` 阈值短路（`ball.py:100-106`），`refresh()` 每秒调一次也不会触发重绘；这条是写文档时凭印象提的，复核源码后作废；② 未来「皮肤」只需 `Theme` 实例 + 一次重绘 + 一个信号，**现在不必建 `ui/stylesheet.py` 或注册机**（我们只有一个自绘 widget，QSS 对它无效）；③ 减弱动效可作为皮肤系统的前置项，按 Anki 的做法做成可配置开关。
 
 ### 2.5 平台差异收口到一个文件
 
@@ -124,17 +124,19 @@ CustomTkinter 没有原生圆角，只能自己拼图形，它的经验对 QPain
 
 ---
 
-## 5. 对 Orbit 的落地清单（每条可单独验证，均未实施）
+## 5. 对 Orbit 的落地清单
 
-| 优先级 | 动作 | 验证方式 |
-|---|---|---|
-| 1 · 低风险 | `theme.py` 扩容：动画时长、面板尺寸、字体族与字号、描边色、两层阴影参数全部收进 `Theme`；`ball.py` 绘制代码零裸数字 | 改 `Theme` 单值即可改外观；现有单测全绿 |
-| 2 · 低风险 | `refresh()` 加「值未变不 `update()`」短路（Anki `apply_style` 做法） | 用假时钟断言 60 次 refresh 只触发 1 次重绘 |
-| 3 · 低风险 | 退出动画 200→160ms（与 Fluent 的 187/167 节奏、`design-references.md` 建议一致） | 目测原型；几何测试不受影响 |
-| 4 · 中 | 落笔前按 `devicePixelRatio` 对齐环外径/线宽/圆角；圆角改「固定大值 + 高度 clamp」，内圆角减边框宽 | 125% / 150% DPI 下渲染帧对比，锁单测 |
-| 5 · 中 | `reduce_motion` 开关（可配置、默认开）：开启时只留淡入、几何瞬间到位 | 加一条 core 层配置 + UI 分支的单测 |
-| 6 · 中 | DPI / 屏幕变化信号触发重新夹回可用区域，与 `window_state.py` 恢复共用同一 clamp | 模拟 `QScreen` 变化，断言球仍在 `availableGeometry()` 内 |
-| 7 · M3+ | 面板出现标准控件时，再在该窗口局部引入 QPalette/QSS | 届时单独评估，现在不建空壳文件 |
+> 2026-11-14 20:50 更新：第 1 条与第 4 条的圆角部分已落地，视觉数值按 `design-references.md` 方向 B 一并改完（`312a28b`、`1ce1861`、`1c11641`）。
+
+| 优先级 | 动作 | 验证方式 | 状态 |
+|---|---|---|---|
+| 1 · 低风险 | `theme.py` 扩容：动画时长、面板尺寸、字体族与字号、描边色、阴影参数全部收进 `Theme`；`ball.py` 绘制代码零裸数字 | 改 `Theme` 单值即可改外观；现有单测全绿 | **已做** `312a28b` |
+| 2 · 低风险 | `refresh()` 加「值未变不 `update()`」短路（Anki `apply_style` 做法） | 用假时钟断言 60 次 refresh 只触发 1 次重绘 | **已具备**，见 §2.4 ① |
+| 3 · 低风险 | 退出动画 200→160ms（与 Fluent 的 187/167 节奏、`design-references.md` 建议一致） | 目测原型；几何测试不受影响 | 未做，现 200ms |
+| 4 · 中 | 圆角改「固定大值 + 高度 clamp」；落笔前按 `devicePixelRatio` 对齐线宽 | 125% / 150% DPI 下渲染帧对比 | 圆角 **已做** `1ce1861`；DPR 对齐未做（125% 下目视可接受） |
+| 5 · 中 | `reduce_motion` 开关（可配置、默认开）：开启时只留淡入、几何瞬间到位 | 加一条 core 层配置 + UI 分支的单测 | 未做 |
+| 6 · 中 | DPI / 屏幕变化信号触发重新夹回可用区域，与 `window_state.py` 恢复共用同一 clamp | 模拟 `QScreen` 变化，断言球仍在 `availableGeometry()` 内 | 未做 |
+| 7 · M3+ | 面板出现标准控件时，再在该窗口局部引入 QPalette/QSS | 届时单独评估，现在不建空壳文件 | 未做 |
 
 > 与 `docs/design-references.md` §6 的落地顺序关系：那份的第 1 步（改 `theme.py` 参数）与本表第 1 步是**同一件事**，合并做；那份偏视觉数值，本表偏工程收口。
 
