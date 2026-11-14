@@ -72,8 +72,11 @@ def test_restore_without_record_puts_ball_on_screen(qt_app):
     ball.restore(WindowState())
     screen = ball.screen().availableGeometry()
     assert screen.contains(ball.frameGeometry().center())
-    center_ratio = (ball.frameGeometry().center().x() - screen.x()) / screen.width()
-    assert center_ratio == pytest.approx(0.76, abs=0.01)
+    center = ball.frameGeometry().center()
+    center_x_ratio = (center.x() - screen.x()) / screen.width()
+    center_y_ratio = (center.y() - screen.y()) / screen.height()
+    assert center_x_ratio == pytest.approx(0.5, abs=0.01)
+    assert center_y_ratio == pytest.approx(0.5, abs=0.01)
 
 
 def test_restore_clamps_position_from_a_removed_monitor(qt_app):

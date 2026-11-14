@@ -37,9 +37,6 @@ from ..storage import WindowState
 from .theme import DARK, Theme
 from .morph import StripSpec, frame_at, motion_bounds
 
-DEFAULT_EDGE_MARGIN = 16
-
-
 def percent_text(ratio: float) -> str:
     """球心只放这一行字，不放中文（44px 的内径塞不下整句）。"""
     clamped = min(max(ratio, 0.0), 1.0)
@@ -137,10 +134,11 @@ class BallWindow(QWidget):
         point = state.as_point()
         if point is None:
             work = self._work_area()
-            center_x = work.x + work.w * 0.76
+            center_x = work.x + work.w / 2
+            center_y = work.y + work.h / 2
             self.move(
                 round(center_x - size / 2),
-                int(work.y + work.h / 3),
+                round(center_y - size / 2),
             )
             return
         x, y = point
