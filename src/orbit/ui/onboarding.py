@@ -57,6 +57,9 @@ class WheelColumn(QWidget):
         super().__init__(parent)
         self._maximum = maximum
         self._suffix = suffix
+        self._drag_origin_y: float | None = None
+        self._drag_last_steps = 0
+        self._dragging = False
         self.setObjectName("wheelColumn")
         self.setFixedWidth(66)
 
@@ -86,6 +89,8 @@ class WheelColumn(QWidget):
             label.setFixedHeight(30)
             label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             label.installEventFilter(self)
+        self.current.installEventFilter(self)
+        self.current.lineEdit().installEventFilter(self)
 
         layout.addWidget(self.previous)
         layout.addWidget(self.current)
@@ -93,7 +98,7 @@ class WheelColumn(QWidget):
         self.current.valueChanged.connect(self._sync)
         self.current.valueChanged.connect(self.valueChanged)
         self._sync(self.current.value())
-        self.setToolTip(f"滚动或使用 ↑ ↓ 调整{suffix}；也可以直接输入数字")
+        self.setToolTip(f"上下拖动、滚动或使用 ↑ ↓ 调整{suffix}；也可以直接输入数字")
 
     def _sync(self, value: int) -> None:
         self.previous.setText(f"{(value - 1) % (self._maximum + 1):02d}")
@@ -106,7 +111,34 @@ class WheelColumn(QWidget):
                 self.current.stepBy(1 if delta > 0 else -1)
                 return True
         if event.type() == event.Type.MouseButtonPress:
-            self.current.setFocus()
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._drag_origin_y = event.globalPosition().y()
+                self._drag_last_steps = 0
+                self._dragging = False
+                self.current.setFocus()
+        elif (
+            event.type() == event.Type.MouseMove
+            and self._drag_origin_y is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            distance = event.globalPosition().y() - self._drag_origin_y
+            if not self._dragging and abs(distance) >= 7:
+                self._dragging = True
+            if self._dragging:
+                steps = max(1, int((abs(distance) + 8) / 22))
+                steps = steps if distance < 0 else -steps
+                delta = steps - self._drag_last_steps
+                if delta:
+                    self.current.stepBy(delta)
+                    self._drag_last_steps = steps
+                return True
+        elif event.type() == event.Type.MouseButtonRelease:
+            was_dragging = self._dragging
+            self._drag_origin_y = None
+            self._drag_last_steps = 0
+            self._dragging = False
+            if was_dragging:
+                return True
         return super().eventFilter(watched, event)
 
     def value(self) -> int:
