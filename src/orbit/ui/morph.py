@@ -232,9 +232,13 @@ def motion_bounds(spec: StripSpec, steps: int = 24) -> tuple[float, float, float
     ys: list[float] = []
     for i in range(steps + 1):
         t = i / steps
-        for j in range(25):
-            x, y = near_point(j / 24, t, spec)
+        frame = frame_at(t, spec)
+        points = (*frame.red, *frame.track, *frame.body)
+        for x, y in points:
             xs.append(x)
             ys.append(y)
+        rect = frame.body_rect
+        xs.extend((rect.x, rect.right))
+        ys.extend((rect.y, rect.bottom))
     pad = spec.ring_width + 4
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
