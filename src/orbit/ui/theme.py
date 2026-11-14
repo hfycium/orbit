@@ -1,9 +1,14 @@
-"""绘制参数。**所有颜色与尺寸都从这里取，不要写死在 paintEvent 里。**
+"""绘制参数与节奏参数。**所有颜色、尺寸、时长都从这里取，不要写死在 paintEvent 里。**
 
 这是「皮肤」的地基：将来换皮肤只是换一个 `Theme` 实例，绘制代码不动。
 现在只有 `DARK` 一套，别提前造占位主题——空主题比没有主题更容易腐烂。
 
 颜色字段用 `default_factory`：QColor 是可变对象，dataclass 不允许直接当默认值。
+
+数值来源分三类，改之前先看是哪一类：
+- 几何（半径、环宽、留白）：与 `morph.StripSpec` 必须对齐，改一处就要看展开还接不接得上。
+- 节奏（展开/收起/悬浮延时）：参考 Fluent 的「进慢退快」，别随手调成对称。
+- 排版（字号、字体族）：球心只有一个百分比，字号跟着球径走会抖，所以写成定值。
 """
 
 from __future__ import annotations
@@ -24,6 +29,19 @@ class Theme:
     ring_width: float = 4.0
     ring_inset: float = 2.0
     window_margin: float = 4.0
+    panel_width: int = 320
+    panel_height: int = 96
+
+    # --- 节奏（毫秒）---
+    # 进入比退出慢：收起是「让开」，不该和展开一样抢注意力。
+    expand_ms: int = 260
+    collapse_ms: int = 200
+    hover_open_ms: int = 300
+    hover_close_ms: int = 300
+
+    # --- 排版 ---
+    font_families: tuple[str, ...] = ("Segoe UI", "Microsoft YaHei")
+    percent_px: int = 14
 
     # --- 颜色 ---
     body_inner: QColor = field(default_factory=lambda: _color(44, 51, 66))

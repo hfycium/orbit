@@ -63,7 +63,7 @@ class BallWindow(QWidget):
         self._motion_origin = QPointF()
         self._expanded = False
         self._anim = QVariantAnimation(self)
-        self._anim.setDuration(260)
+        self._anim.setDuration(theme.expand_ms)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._anim.valueChanged.connect(self._on_morph_value)
         self._anim.finished.connect(self._on_morph_finished)
@@ -72,14 +72,14 @@ class BallWindow(QWidget):
         self._hover_opened = False
         self._hover_timer = QTimer(self)
         self._hover_timer.setSingleShot(True)
-        self._hover_timer.setInterval(300)
+        self._hover_timer.setInterval(theme.hover_open_ms)
         self._hover_timer.timeout.connect(self._expand_from_hover)
         self._outside_timer = QTimer(self)
         self._outside_timer.setInterval(50)
         self._outside_timer.timeout.connect(self._poll_outside_click)
         self._leave_timer = QTimer(self)
         self._leave_timer.setSingleShot(True)
-        self._leave_timer.setInterval(300)
+        self._leave_timer.setInterval(theme.hover_close_ms)
         self._leave_timer.timeout.connect(self._collapse_if_pointer_left)
         self._escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         self._escape.setContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -159,7 +159,10 @@ class BallWindow(QWidget):
         center = QPointF(self.x() + self.width() / 2, self.y() + self.height() / 2)
         work = self._work_area(center.toPoint())
         down = center.y() <= work.y + work.h / 2
-        placement = place_panel(work, center.x(), center.y(), self.theme.ball_radius, 320, 96)
+        placement = place_panel(
+            work, center.x(), center.y(), self.theme.ball_radius,
+            self.theme.panel_width, self.theme.panel_height,
+        )
         self._morph = StripSpec(
             center.x(), center.y(), self.theme.ball_radius, placement.rect,
             down=down, ratio=self._ratio, ring_width=self.theme.ring_width,
@@ -179,14 +182,14 @@ class BallWindow(QWidget):
         self._panel_rect = placement.rect
         self._expanded = True
         self._set_canvas(self._origin, self._motion_size)
-        self._animate(0.0, 1.0, 260)
+        self._animate(0.0, 1.0, self.theme.expand_ms)
 
     def _begin_collapse(self) -> None:
         if self._morph is None:
             return
         self._set_canvas(self._motion_origin, self._motion_size)
         self._expanded = False
-        self._animate(self._morph_t, 0.0, 200)
+        self._animate(self._morph_t, 0.0, self.theme.collapse_ms)
 
     def _animate(self, start: float, end: float, duration: int) -> None:
         self._anim.stop()
@@ -412,8 +415,9 @@ class BallWindow(QWidget):
 
         if frame.ball_alpha > 0.01:
             painter.setOpacity(frame.ball_alpha)
-            font = QFont("Segoe UI")
-            font.setPixelSize(14)
+            font = QFont()
+            font.setFamilies(list(self.theme.font_families))
+            font.setPixelSize(self.theme.percent_px)
             font.setWeight(QFont.Weight.DemiBold)
             painter.setFont(font)
             painter.setPen(self.theme.text)
@@ -478,8 +482,8 @@ class BallWindow(QWidget):
     def _paint_text(self, painter: QPainter, center: QPointF) -> None:
         theme = self.theme
         font = QFont()
-        font.setFamilies(["Segoe UI", "Microsoft YaHei"])
-        font.setPixelSize(max(9, int(theme.ball_radius * 0.5)))
+        font.setFamilies(list(theme.font_families))
+        font.setPixelSize(theme.percent_px)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
         painter.setPen(theme.text_muted if self._fallback else theme.text)
