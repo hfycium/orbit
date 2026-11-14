@@ -18,6 +18,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, QSize, Qt, Sig
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontMetricsF,
     QGuiApplication,
     QPainter,
     QPainterPath,
@@ -101,6 +102,10 @@ class BallWindow(QWidget):
         self._percent_font.setPixelSize(theme.percent_px)
         self._percent_font.setWeight(theme.percent_weight)
         self._percent_font.setFeature(QFont.Tag("tnum"), 1)
+        # 透明窗口上 ClearType 会按不透明背景算亚像素，字缘出现红蓝彩边，
+        # 放大看很明显。字体策略压不住它，所以文字改用字形轮廓填充
+        # （见 _draw_percent）：几何抗锯齿只会产生灰边。
+        self._percent_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
 
     # ------------------------------------------------------------------ 状态
 
@@ -428,15 +433,13 @@ class BallWindow(QWidget):
 
         if frame.ball_alpha > 0.01:
             painter.setOpacity(frame.ball_alpha)
-            painter.setFont(self._percent_font)
-            painter.setPen(self.theme.text)
             box = QRectF(
                 spec.cx - spec.radius - self._origin.x(),
                 spec.cy - spec.radius - self._origin.y(),
                 spec.radius * 2,
                 spec.radius * 2,
             )
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, percent_text(self._ratio))
+            self._draw_percent(painter, box, self.theme.text)
             painter.setOpacity(1.0)
 
     def _paint_body(self, painter: QPainter, center: QPointF, radius: float) -> None:
@@ -504,14 +507,30 @@ class BallWindow(QWidget):
         else:
             painter.drawArc(rect, 90 * 16, int(round(-360 * 16 * ratio)))
 
+    def _draw_percent(self, painter: QPainter, box: QRectF, color: QColor) -> None:
+        """把百分比画成字形轮廓。
+
+        不用 drawText：Windows 的 ClearType 在透明窗口上会做亚像素渲染，
+        字缘出现红蓝彩边。轮廓填充走几何抗锯齿，只有灰度过渡。
+        """
+        text = percent_text(self._ratio)
+        metrics = QFontMetricsF(self._percent_font)
+        baseline = box.center().y() + (metrics.ascent() - metrics.descent()) / 2
+        path = QPainterPath()
+        path.addText(
+            box.center().x() - metrics.horizontalAdvance(text) / 2,
+            baseline,
+            self._percent_font,
+            text,
+        )
+        painter.fillPath(path, color)
+
     def _paint_text(self, painter: QPainter, center: QPointF) -> None:
         theme = self.theme
-        painter.setFont(self._percent_font)
-        painter.setPen(theme.text_muted if self._fallback else theme.text)
         box = QRectF(
             center.x() - theme.ball_radius,
             center.y() - theme.ball_radius,
             theme.ball_radius * 2,
             theme.ball_radius * 2,
         )
-        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, percent_text(self._ratio))
+        self._draw_percent(painter, box, theme.text_muted if self._fallback else theme.text)

@@ -52,7 +52,9 @@ class Theme:
     # --- 颜色（方向 B「单色克制」：不渐变、不抢余光）---
     body_inner: QColor = field(default_factory=lambda: _color(29, 32, 39))
     body_outer: QColor = field(default_factory=lambda: _color(23, 25, 31))
-    track: QColor = field(default_factory=lambda: _color(255, 255, 255, 14))
+    # 14 在深色壁纸上几乎与球底同色，环看起来像「只剩一段」；18 是能看出轨道、
+    # 又不至于在浅色壁纸上发脏灰的折中。
+    track: QColor = field(default_factory=lambda: _color(255, 255, 255, 18))
     accent: QColor = field(default_factory=lambda: _color(169, 199, 255))
     text: QColor = field(default_factory=lambda: _color(239, 242, 248))
     text_muted: QColor = field(default_factory=lambda: _color(239, 242, 248, 120))
