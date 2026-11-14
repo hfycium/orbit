@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from orbit.config import (
+from orbit.storage import (
     DAILY_KEEP_DAYS,
     Config,
     DatedSchedule,

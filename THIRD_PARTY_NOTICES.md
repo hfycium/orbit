@@ -2,14 +2,16 @@
 
 本文件记录 Orbit 中**实际引入**的第三方代码（不是「参考过」的）。规则见 `docs/reuse-map.md` 第 4 节。
 
-## 当前状态：尚未引入任何第三方代码
+## 当前状态：尚未复制任何第三方源码
 
-截至 2026-11-14，`src/` 下全部代码为本项目原创。已审查并计划移植的代码见下表，**移植前此表不计入义务**——MIT 的署名义务在「复制并分发」时才产生。
+截至 2026-11-14（M1 完成），`src/` 下全部代码为本项目原创。以下几处**写法**参照了上游实现或 Qt 官方示例，但未逐行复制，因此不产生署名义务；一旦将来真的粘贴代码，必须在下表补齐完整许可证全文。
 
-| 上游 | 许可证 | 计划用途 | 状态 |
+| 上游 / 来源 | 许可证 | 参照的是什么 | 状态 |
 |---|---|---|---|
-| viruztt/ProgressPies | MIT | 拖拽与 4px 判定、点击穿透标志、位置恢复 | 待引入（M1） |
-| riboly/Glass-Monitor | MIT | `_foreground_is_fullscreen()` 单函数 | 待引入（M1 之后） |
+| Qt for Python 官方示例 | — | 无边框窗口拖拽的通用写法（`globalPosition() - frameGeometry().topLeft()` 记偏移）。这是 Qt 手册里就有的写法 | 参照，未复制 |
+| viruztt/ProgressPies | MIT | `widget.py` 的 4px 位移阈值、`WindowTransparentForInput` 开关写法、`screenAt` 反向找屏 | 参照，未复制 |
+| riboly/Glass-Monitor | MIT | `_foreground_is_fullscreen()` 的判据（排除 Progman / WorkerW、按窗口所在显示器比对） | **尚未引入**，M1 之后做全屏隐藏时再移植 |
+| Mamihlapinatapaiooo/desktop_calendar | MIT | 原子写（`tmp` + `os.replace`）的思路 | 参照，未复制 |
 
 ## 引入时必须补齐的字段
 
@@ -57,3 +59,8 @@
 | tiaod/day-progress | 无 LICENSE |
 | ArcaEge/day-progress | GPL-3.0，与 MIT 不兼容 |
 | Kojjyan/Dayring | LICENSE 明文禁止复制、修改、分发、使用 |
+
+## 本项目自身许可证
+
+Orbit 以 **MIT** 分发，全文见仓库根的 `LICENSE`。选 MIT 而不选 GPL-3.0 的代价是明摆着的：ArcaEge/day-progress（49★，GNOME 顶栏日进度条）因此永久不可引用。写代码时已确认不需要它。
+

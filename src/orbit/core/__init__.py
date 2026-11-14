@@ -14,11 +14,13 @@ from .clock import (
     parse_time,
     suggest_day_line,
 )
+from .interaction import CLICK, CLICK_MAX_MOVE, DRAG, NONE, PointerTracker
 from .layout import (
     DEFAULT_GAP,
     MIN_PANEL_HEIGHT,
     PanelPlacement,
     Rect,
+    clamp_into_work,
     place_panel,
 )
 from .progress import (
@@ -45,8 +47,13 @@ from .schedule import (
 )
 
 __all__ = [
+    "CLICK",
+    "CLICK_MAX_MOVE",
     "DEFAULT_GAP",
+    "DRAG",
     "MIN_PANEL_HEIGHT",
+    "NONE",
+    "PointerTracker",
     "SOURCE_DAILY_BASELINE",
     "SOURCE_FALLBACK",
     "SOURCE_OVERRIDE",
@@ -61,6 +68,7 @@ __all__ = [
     "Rect",
     "build_window",
     "circular_span",
+    "clamp_into_work",
     "compute",
     "daily_source",
     "day_key",

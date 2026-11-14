@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from orbit.config import Config, DatedSchedule, Schedule, Weekly
+from orbit.storage import Config, DatedSchedule, Schedule, Weekly
 from orbit.core import (
     SOURCE_DAILY_BASELINE,
     STATE_OVER,

@@ -108,3 +108,22 @@ def place_panel(
     # 此时近端不再对着球，但总比面板半个身子在屏幕外好。
     y = min(max(y, work.y), max(work.bottom - h, work.y))
     return PanelPlacement(x=x, y=y, w=w, h=h, down=down, room=room, gap=gap)
+
+
+def clamp_into_work(
+    x: float, y: float, w: float, h: float, work: Rect, margin: float = 0.0
+) -> tuple[int, int]:
+    """把窗口左上角钳进工作区，保证整窗可见。
+
+    用于「重启后恢复位置」：上次的坐标可能来自一块已经拔掉的副屏、
+    或者分辨率变小了，直接用会把球丢到屏幕外，用户以为程序没启动。
+    窗口比工作区还大时贴左上角，不做无意义的负数推送。
+    """
+    left = work.x + margin
+    top = work.y + margin
+    right = work.right - margin - w
+    bottom = work.bottom - margin - h
+    return (
+        int(round(min(max(x, left), max(right, left)))),
+        int(round(min(max(y, top), max(bottom, top)))),
+    )

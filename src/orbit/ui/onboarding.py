@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..config import Config, Schedule, Weekly
+from ..storage import Config, Schedule, Weekly
 from ..core.schedule import daily_source, inspect_day_line
 
 MODE_TEXT = {

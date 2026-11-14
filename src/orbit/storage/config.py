@@ -10,11 +10,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
+
+from .jsonio import load_json, save_json
 
 MODES = ("fixed", "daily", "weekly")
 DAILY_KEEP_DAYS = 30
@@ -181,25 +182,14 @@ def config_path() -> Path:
 
 
 def load_config(path: Path | None = None) -> Config:
-    target = path or config_path()
-    try:
-        raw = target.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return Config()
-    except OSError:
-        return Config()
-    try:
-        return Config.from_dict(json.loads(raw))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return Config()
+    """读配置。文件缺失、损坏、内容不是对象，都按「未配置」处理。
+
+    损坏时会先试 `.bak`（上一次的完整内容），所以手改坏一个逗号不会连作息一起丢。
+    """
+    data = load_json(path or config_path())
+    return Config() if data is None else Config.from_dict(data)
 
 
 def save_config(config: Config, path: Path | None = None) -> Path:
-    """原子写：先写临时文件再替换，防止写到一半断电留下半个 JSON。"""
-    target = path or config_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(config.trimmed().to_dict(), ensure_ascii=False, indent=2)
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, target)
-    return target
+    """原子写：先写临时文件再替换，并把上一版留成 `.bak`。"""
+    return save_json(path or config_path(), config.trimmed().to_dict())
