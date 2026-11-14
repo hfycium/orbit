@@ -202,6 +202,7 @@ class ScheduleRing(QWidget):
         painter.setFont(time_font)
         painter.drawText(center.x() - 92, center.y() - 16, 184, 40, Qt.AlignmentFlag.AlignCenter, self._center_time)
         painter.setPen(QColor(COLORS["muted"]))
+        painter.setFont(QFont("Microsoft YaHei UI", 10))
         painter.drawText(center.x() - 80, center.y() + 26, 160, 22, Qt.AlignmentFlag.AlignCenter, "作息起点")
 
 
