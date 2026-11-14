@@ -11,7 +11,10 @@ M1 只做「能看、能拖、能记住位置」。点击目前只发信号，�
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, QSize, Qt, Signal, QVariantAnimation
+import ctypes
+import sys
+
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, QSize, Qt, Signal, QVariantAnimation, QTimer
 from PySide6.QtGui import (
     QColor,
     QConicalGradient,
@@ -21,6 +24,9 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QRadialGradient,
+    QCursor,
+    QKeySequence,
+    QShortcut,
 )
 from PySide6.QtWidgets import QWidget
 
@@ -66,6 +72,21 @@ class BallWindow(QWidget):
         self._anim.finished.connect(self._on_morph_finished)
         self._panel_rect = Rect(0, 0, 0, 0)
         self._motion_size = QSize(self.theme.window_size, self.theme.window_size)
+        self._hover_opened = False
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(300)
+        self._hover_timer.timeout.connect(self._expand_from_hover)
+        self._outside_timer = QTimer(self)
+        self._outside_timer.setInterval(50)
+        self._outside_timer.timeout.connect(self._poll_outside_click)
+        self._leave_timer = QTimer(self)
+        self._leave_timer.setSingleShot(True)
+        self._leave_timer.setInterval(300)
+        self._leave_timer.timeout.connect(self._collapse_if_pointer_left)
+        self._escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self._escape.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._escape.activated.connect(self._begin_collapse)
 
         self.setWindowTitle("Orbit")
         self.setWindowFlags(
@@ -135,6 +156,7 @@ class BallWindow(QWidget):
             self._begin_collapse()
 
     def _begin_expand(self) -> None:
+        self._hover_opened = False
         center = QPointF(self.x() + self.width() / 2, self.y() + self.height() / 2)
         work = self._work_area(center.toPoint())
         down = center.y() <= work.y + work.h / 2
@@ -191,18 +213,26 @@ class BallWindow(QWidget):
             rect = self._panel_rect
             self._set_canvas(QPointF(rect.x, rect.y), QSize(round(rect.w), round(rect.h)))
             self._origin = QPointF(rect.x, rect.y)
+            self._outside_timer.start()
         else:
             spec = self._morph
             size = self.theme.window_size
             self._set_canvas(QPointF(spec.cx - size / 2, spec.cy - size / 2), QSize(size, size))
             self._morph = None
             self._morph_t = 0.0
+            self._outside_timer.stop()
+            self._leave_timer.stop()
         self.update()
 
     # ------------------------------------------------------------------ 交互
 
     def mousePressEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._morph is not None and self._anim.state() != QVariantAnimation.State.Running:
+            self._tracker.press(event.globalPosition().x(), event.globalPosition().y())
+            self._press_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
             return
         point = event.globalPosition()
         self._tracker.press(point.x(), point.y())
@@ -217,14 +247,80 @@ class BallWindow(QWidget):
         if not self._tracker.move(point.x(), point.y()):
             return  # 还没越过阈值，窗口不动，免得“点一下就抖一下”
         target = point.toPoint() - self._press_offset
+        old_x, old_y = self.x(), self.y()
         self.move(target)
+        if self._morph is not None:
+            self._translate_morph(self.x() - old_x, self.y() - old_y)
         event.accept()
+
+    def _translate_morph(self, dx: int, dy: int) -> None:
+        spec = self._morph
+        if spec is None:
+            return
+        self._morph = StripSpec(
+            cx=spec.cx + dx, cy=spec.cy + dy, radius=spec.radius,
+            panel=Rect(spec.panel.x + dx, spec.panel.y + dy, spec.panel.w, spec.panel.h),
+            down=spec.down, ratio=spec.ratio, ring_width=spec.ring_width,
+            inset=spec.inset, gap_deg=spec.gap_deg, t_gap=spec.t_gap,
+            t_bend=spec.t_bend, samples=spec.samples,
+        )
+        self._panel_rect = self._morph.panel
+        self._origin += QPointF(dx, dy)
+        self._motion_origin += QPointF(dx, dy)
+
+    def enterEvent(self, event) -> None:
+        self._leave_timer.stop()
+        if self._morph is None:
+            self._hover_timer.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover_timer.stop()
+        if self._morph is not None and self._hover_opened:
+            self._leave_timer.start()
+        super().leaveEvent(event)
+
+    def _expand_from_hover(self) -> None:
+        if self._morph is None:
+            self._hover_opened = True
+            self._begin_expand()
+            self._hover_opened = True
+
+    def _collapse_if_pointer_left(self) -> None:
+        if self._morph is not None and self._hover_opened:
+            point = QCursor.pos()
+            if not self.frameGeometry().contains(point):
+                self._begin_collapse()
+
+    def _poll_outside_click(self) -> None:
+        if self._morph is None or self._anim.state() == QVariantAnimation.State.Running:
+            return
+        if sys.platform == "win32":
+            pressed = bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 1)
+        else:
+            pressed = bool(QGuiApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+        if pressed and not self.frameGeometry().contains(QCursor.pos()):
+            self._begin_collapse()
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
         point = event.globalPosition()
         verdict = self._tracker.release(point.x(), point.y())
+        if self._morph is not None:
+            if verdict == DRAG:
+                work = self._work_area(point.toPoint())
+                x, y = clamp_into_work(self.x(), self.y(), self.width(), self.height(), work)
+                dx, dy = x - self.x(), y - self.y()
+                if dx or dy:
+                    self.move(x, y)
+                    self._translate_morph(dx, dy)
+                spec = self._morph
+                size = self.theme.window_size
+                self.moved.emit(round(spec.cx - size / 2), round(spec.cy - size / 2))
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
         if verdict == DRAG:
