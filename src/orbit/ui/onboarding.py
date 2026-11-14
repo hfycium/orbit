@@ -473,7 +473,8 @@ class OnboardingDialog(QDialog):
             QLabel#timeColon {{ color: {COLORS['quiet']}; font-size: 20px; padding-top: 23px; }}
             QWidget#wheelColumn {{ background: transparent; }}
             QLabel#wheelNeighbor {{ color: {COLORS['quiet']}; font-size: 14px; background: transparent; }}
-            QSpinBox#wheelValue {{ color: {COLORS['text']}; background: #252a32; border: 1px solid #525f78; border-radius: 7px; font-size: 24px; font-weight: 600; selection-background-color: #687da7; padding: 0; }}
+            QSpinBox#wheelValue {{ color: {COLORS['text']}; background: #252a32; border: 1px solid #424b5a; border-radius: 9px; font-size: 24px; font-weight: 600; selection-background-color: #687da7; padding: 0; }}
+            QSpinBox#wheelValue:focus {{ background: #292f3b; border-color: {COLORS['accent']}; }}
             QSpinBox#wheelValue::up-button, QSpinBox#wheelValue::down-button {{ width: 0; border: 0; }}
             QScrollArea#pageScroll {{ background: transparent; }}
             QWidget#pageContent, QScrollArea#pageScroll QWidget#qt_scrollarea_viewport {{ background: {COLORS['background']}; }}
