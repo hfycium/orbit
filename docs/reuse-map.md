@@ -132,8 +132,15 @@ x = max(g.left(), min(x, g.right() - w + 1))   # 钳进工作区
 | desktop_calendar `app/ui/floating_ball.py:49–52` | 窗口标志三件套：`FramelessWindowHint \| WindowStaysOnTopHint \| Tool` + `WA_TranslucentBackground` | PyQt6 枚举写法，移植只是机械替换；可直接写成 PySide6 版本 |
 | DayBar `Pages/FirstRun/*` | 首启向导**分页**（功能说明 → 定制 → 完成），而我们的引导是单页 | C#/WPF，代码完全用不上。若将来觉得单页太挤，照它的分页顺序重排我们的 `onboarding.py` |
 | LiteCount `FloatingPlacement.swift` | 贴边吸附的**判定顺序**：先判水平贴哪边，再判垂直对齐 | Swift/macOS，且我们用不到吸附（球是可自由拖的） |
+| [pyside6-modern-widgets · EdgeDockController](https://pypi.org/project/pyside6-modern-widgets/0.5.13/) | 悬停自动收起、边缘把手恢复、拖动后吸边；可参考其悬停期间不收起、弹窗/动画时暂停自动隐藏等状态规则 | MIT；项目标为 Alpha，且 `Requires-Python >=3.10,<3.13`，Orbit 当前 Python 3.13 不兼容。**只作行为参考，不作为依赖** |
+| [kwhyu/overlet](https://github.com/kwhyu/overlet) | Windows 小组件的边缘吸附、托盘管理、右键选项与点击穿透等完整交互 | MIT；Electron/网页技术栈，不移植代码，只参考交互 |
+| [cnbright/floating_ball](https://github.com/cnbright/floating_ball) | PySide6 悬浮球的托盘左键显示/隐藏、右键退出菜单 | MIT；适合作为 Qt 托盘行为对照，未发现专门的悬停吸边实现 |
+| [Qt for Python 系统托盘示例](https://doc.qt.io/qtforpython-6/examples/example_widgets_desktop_systray.html) | `QSystemTrayIcon`、上下文菜单和托盘激活信号的官方用法 | 官方文档示例；用于核对 Qt API，不提供吸边策略 |
+| [Microsoft 任务栏自定义说明](https://support.microsoft.com/en-us/windows/experience/personalization/customize-the-taskbar) | Windows 可将托盘图标放在可见区或溢出区，用户可调整图标显示位置 | 系统行为参考；Orbit 可以注册并显示图标，不能保证 Windows 始终将其固定在可见区 |
 | tiaod `src/views/Home.vue` | `newDayBegins` 概念的来源 | **无许可证**。概念已实现为我们的 `day_line`，代码一行未取 |
 | ArcaEge `day-progress` | 「顶栏细进度条」的视觉克制 | **GPL-3.0**，会传染 |
+
+**技能检索记录（2026-11-14）**：在 skills.sh 搜索 PySide6 系统托盘相关技能，没有找到直接覆盖 PySide6/Windows 悬浮窗悬停、吸边和托盘行为的技能；结果中的 Tauri 托盘技能栈不匹配，不采用。
 
 ---
 
