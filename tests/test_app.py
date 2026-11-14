@@ -6,6 +6,7 @@
 import pytest
 from PySide6.QtTest import QTest
 from PySide6.QtNetwork import QLocalSocket
+from PySide6.QtWidgets import QSystemTrayIcon
 
 from orbit.app import OrbitApp, SingleInstance
 from orbit.storage import Config, Schedule, WindowState, load_config, load_state, save_config
@@ -117,6 +118,17 @@ def test_second_instance_activates_existing_instance(qt_app, tmp_path):
     socket.disconnectFromServer()
     primary.server.close()
     primary.lock.unlock()
+
+
+def test_tray_is_registered_even_before_shell_tray_is_ready(qt_app, monkeypatch):
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", lambda: False)
+    orbit = OrbitApp(qt_app)
+
+    orbit._install_tray()
+
+    assert orbit.tray is not None
+    assert orbit.tray.isVisible()
+    orbit.tray.hide()
 
 
 def test_window_state_roundtrip_through_app(qt_app, orbit_home):

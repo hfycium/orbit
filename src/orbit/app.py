@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -82,12 +82,11 @@ def _tray_icon() -> QIcon:
     pixmap.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    pen = QPen(DARK.accent_mid, 3.0)
-    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    inset = 4.0
-    painter.drawEllipse(inset, inset, TRAY_ICON_SIZE - 2 * inset, TRAY_ICON_SIZE - 2 * inset)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(DARK.accent_mid)
+    painter.drawEllipse(4, 4, 24, 24)
+    painter.setBrush(DARK.body_outer)
+    painter.drawEllipse(9, 9, 14, 14)
     painter.end()
     return QIcon(pixmap)
 
@@ -134,12 +133,21 @@ class OrbitApp:
         return True
 
     def _install_tray(self) -> None:
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            return
         self.tray = QSystemTrayIcon(_tray_icon(), self.app)
-        self.tray.setToolTip("Orbit · 今天还剩多少")
+        self.tray.setToolTip("Orbit · 点击显示 / 隐藏，右键打开菜单")
         self.tray.setContextMenu(self._build_menu(None))
+        self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason not in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            return
+        self._toggle_visible()
+        if self.ball is not None and self.ball.isVisible():
+            self.ball.raise_()
 
     # ------------------------------------------------------------------ 刷新
 
