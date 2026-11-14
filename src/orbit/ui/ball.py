@@ -137,8 +137,9 @@ class BallWindow(QWidget):
         point = state.as_point()
         if point is None:
             work = self._work_area()
+            center_x = work.x + work.w * 0.76
             self.move(
-                int(work.right - size - DEFAULT_EDGE_MARGIN),
+                round(center_x - size / 2),
                 int(work.y + work.h / 3),
             )
             return
