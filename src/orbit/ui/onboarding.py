@@ -66,11 +66,13 @@ class WheelColumn(QWidget):
 
         self.previous = QLabel()
         self.previous.setObjectName("wheelNeighbor")
-        self.current = QSpinBox()
+        self.current = _PaddedSpinBox()
         self.current.setObjectName("wheelValue")
         self.current.setRange(0, maximum)
         self.current.setWrapping(True)
-        self.current.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        # NoButtons on the Windows style collapses QSpinBox's internal line edit to 1px.
+        # Keep the native spin subcontrols enabled and hide their hit areas in QSS instead.
+        self.current.setButtonSymbols(QSpinBox.ButtonSymbols.UpDownArrows)
         self.current.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.current.setKeyboardTracking(True)
         self.current.setAccelerated(True)
@@ -109,6 +111,17 @@ class WheelColumn(QWidget):
 
     def value(self) -> int:
         return self.current.value()
+
+
+class _PaddedSpinBox(QSpinBox):
+    def textFromValue(self, value: int) -> str:
+        return f"{value:02d}"
+
+    def valueFromText(self, text: str) -> int:
+        try:
+            return int(text)
+        except ValueError:
+            return 0
 
 
 class TimeWheel(QWidget):
@@ -459,7 +472,8 @@ class OnboardingDialog(QDialog):
             QLabel#timeColon {{ color: {COLORS['quiet']}; font-size: 20px; padding-top: 23px; }}
             QWidget#wheelColumn {{ background: transparent; }}
             QLabel#wheelNeighbor {{ color: {COLORS['quiet']}; font-size: 14px; background: transparent; }}
-            QSpinBox#wheelValue {{ color: {COLORS['text']}; background: #252a32; border: 1px solid #525f78; border-radius: 7px; font-size: 24px; font-weight: 600; selection-background-color: #687da7; }}
+            QSpinBox#wheelValue {{ color: {COLORS['text']}; background: #252a32; border: 1px solid #525f78; border-radius: 7px; font-size: 24px; font-weight: 600; selection-background-color: #687da7; padding: 0; }}
+            QSpinBox#wheelValue::up-button, QSpinBox#wheelValue::down-button {{ width: 0; border: 0; }}
             QScrollArea#pageScroll {{ background: transparent; }}
             QWidget#pageContent, QScrollArea#pageScroll QWidget#qt_scrollarea_viewport {{ background: {COLORS['background']}; }}
             QLabel#lineHint {{ color: {COLORS['warning']}; font-size: 12px; padding-top: 7px; }}
