@@ -45,10 +45,10 @@ def test_translucent_background_is_on(qt_app):
 
 def test_window_is_ball_plus_margin(qt_app):
     ball = BallWindow()
-    assert ball.width() == DARK.window_size == 64
+    assert ball.width() == DARK.window_size == 78
     assert ball.height() == ball.width()
-    # 环的中线半径必须与形变几何一套：球 28、内缩 2、环宽 4 → 24
-    assert DARK.neutral_radius == pytest.approx(24.0)
+    # 环的中线半径必须与形变几何一套：球 28、内缩 3、环宽 2.5 → 23.75
+    assert DARK.neutral_radius == pytest.approx(23.75)
 
 
 def test_progress_updates_are_visible(qt_app):

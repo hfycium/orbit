@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 
 def _color(*rgba: int) -> QColor:
@@ -26,11 +26,15 @@ def _color(*rgba: int) -> QColor:
 class Theme:
     # --- 几何（与 morph.StripSpec 的默认值必须一致，展开时才接得上）---
     ball_radius: float = 28.0
-    ring_width: float = 4.0
-    ring_inset: float = 2.0
-    window_margin: float = 4.0
+    ring_width: float = 2.5
+    # 内缩 3 而不是 2：环外沿与描边之间要留 2px 呼吸，
+    # 否则 100% 时整圈像贴着球边发亮。
+    ring_inset: float = 3.0
+    # 留白不再只给抗锯齿：外阴影要占 9px，加 1px 下偏移，再留 1px 余量。
+    window_margin: float = 11.0
     panel_width: int = 320
     panel_height: int = 96
+    panel_radius: float = 16.0
 
     # --- 节奏（毫秒）---
     # 进入比退出慢：收起是「让开」，不该和展开一样抢注意力。
@@ -41,17 +45,25 @@ class Theme:
 
     # --- 排版 ---
     font_families: tuple[str, ...] = ("Segoe UI", "Microsoft YaHei")
-    percent_px: int = 14
+    percent_px: int = 16
+    # Medium 而不是 DemiBold：球小、字又只有三个字符，粗一档就显得吵。
+    percent_weight: QFont.Weight = QFont.Weight.Medium
 
-    # --- 颜色 ---
-    body_inner: QColor = field(default_factory=lambda: _color(44, 51, 66))
-    body_outer: QColor = field(default_factory=lambda: _color(25, 29, 38))
-    track: QColor = field(default_factory=lambda: _color(255, 255, 255, 30))
-    accent_start: QColor = field(default_factory=lambda: _color(91, 140, 255))
-    accent_mid: QColor = field(default_factory=lambda: _color(124, 123, 255))
-    accent_end: QColor = field(default_factory=lambda: _color(166, 135, 255))
-    text: QColor = field(default_factory=lambda: _color(238, 242, 249))
-    text_muted: QColor = field(default_factory=lambda: _color(232, 238, 248, 120))
+    # --- 颜色（方向 B「单色克制」：不渐变、不抢余光）---
+    body_inner: QColor = field(default_factory=lambda: _color(29, 32, 39))
+    body_outer: QColor = field(default_factory=lambda: _color(23, 25, 31))
+    track: QColor = field(default_factory=lambda: _color(255, 255, 255, 14))
+    accent: QColor = field(default_factory=lambda: _color(169, 199, 255))
+    text: QColor = field(default_factory=lambda: _color(239, 242, 248))
+    text_muted: QColor = field(default_factory=lambda: _color(239, 242, 248, 120))
+    # 深色壁纸上球底与桌面只差十来阶亮度，描边是唯一的分离手段，不能太弱。
+    outline: QColor = field(default_factory=lambda: _color(255, 255, 255, 34))
+    outline_width: float = 1.0
+    shadow: QColor = field(default_factory=lambda: _color(0, 0, 0))
+    shadow_offset: float = 1.0
+    # 三层同心圆近似柔和阴影：Windows 的透明窗口上，QGraphicsDropShadowEffect 会出黑底，
+    # DWM 阴影又要求窗口不是 Tool，所以只能自绘。层数与半径够用即可，别再加。
+    shadow_layers: tuple[tuple[float, int], ...] = ((2.0, 30), (4.5, 18), (8.0, 10))
 
     @property
     def neutral_radius(self) -> float:

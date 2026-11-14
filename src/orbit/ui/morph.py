@@ -47,6 +47,9 @@ class StripSpec:
     ratio: float = 0.6
     ring_width: float = 4.0
     inset: float = 2.0
+    # 面板圆角：写成定值，靠 thickness/2 去 clamp。
+    # 不按 t 从 2 长到 12——那样曲率在终点会跳一下，而且矮的时候是方角。
+    corner: float = 16.0
     gap_deg: float = 9.0
     t_gap: float = 0.20
     t_bend: float = 0.55
@@ -54,7 +57,7 @@ class StripSpec:
 
     @property
     def neutral_radius(self) -> float:
-        """环的中线半径。环宽 4、向内缩 2，中线再让半个环宽。"""
+        """环的中线半径：球半径内缩 inset，再让出半个环宽。"""
         return max(self.radius - self.inset - self.ring_width / 2, 1.0)
 
     @property
@@ -155,7 +158,8 @@ def frame_at(t: float, spec: StripSpec) -> MorphFrame:
     track = _polyline(p, max(1.0 - half_gap, p), t, spec)
 
     thickness = spec.ring_width + (spec.panel.h - spec.ring_width) * grow
-    corner = 2.0 + 10.0 * grow
+    # 圆角固定，只在厚度不足时被 clamp 成胶囊：形态随高度自然变化，曲率不跳。
+    corner = min(spec.corner, thickness / 2)
     straight = bend >= 1.0 - 1e-9
 
     # 直立之后面板体的矩形：长度从环周长长到面板宽，高度从环宽长到面板高，
@@ -178,7 +182,9 @@ def frame_at(t: float, spec: StripSpec) -> MorphFrame:
         grow=grow,
         bend=bend,
         straight=straight,
-        ball_alpha=1.0 - bend,
+        # 盘面不能线性淡出：弯折前半段条带还只是一根弧，球先淡掉就成了
+        # 「球蒸发 → 条凭空成形」。指数抬到 1.8，让盘面撑到弯折后段再让位。
+        ball_alpha=1.0 - bend ** 1.8,
     )
 
 

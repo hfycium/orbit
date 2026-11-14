@@ -17,7 +17,6 @@ import sys
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QRectF, QSize, Qt, Signal, QVariantAnimation, QTimer
 from PySide6.QtGui import (
     QColor,
-    QConicalGradient,
     QFont,
     QGuiApplication,
     QPainter,
@@ -95,6 +94,14 @@ class BallWindow(QWidget):
         self.setFixedSize(theme.window_size, theme.window_size)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
+        # 球心数字：等宽数字（tnum）让「8%」与「100%」的数字位对齐，
+        # 刷新时不会因为字形宽度变化而左右抖。字体只建一次，别在 paintEvent 里造。
+        self._percent_font = QFont()
+        self._percent_font.setFamilies(list(theme.font_families))
+        self._percent_font.setPixelSize(theme.percent_px)
+        self._percent_font.setWeight(theme.percent_weight)
+        self._percent_font.setFeature(QFont.Tag("tnum"), 1)
+
     # ------------------------------------------------------------------ 状态
 
     def set_progress(self, ratio: float, fallback: bool = False) -> None:
@@ -166,7 +173,7 @@ class BallWindow(QWidget):
         self._morph = StripSpec(
             center.x(), center.y(), self.theme.ball_radius, placement.rect,
             down=down, ratio=self._ratio, ring_width=self.theme.ring_width,
-            inset=self.theme.ring_inset,
+            inset=self.theme.ring_inset, corner=self.theme.panel_radius,
         )
         left, top, right, bottom = motion_bounds(self._morph)
         ball = (center.x() - self.theme.ball_radius - self.theme.window_margin,
@@ -263,7 +270,7 @@ class BallWindow(QWidget):
             cx=spec.cx + dx, cy=spec.cy + dy, radius=spec.radius,
             panel=Rect(spec.panel.x + dx, spec.panel.y + dy, spec.panel.w, spec.panel.h),
             down=spec.down, ratio=spec.ratio, ring_width=spec.ring_width,
-            inset=spec.inset, gap_deg=spec.gap_deg, t_gap=spec.t_gap,
+            inset=spec.inset, corner=spec.corner, gap_deg=spec.gap_deg, t_gap=spec.t_gap,
             t_bend=spec.t_bend, samples=spec.samples,
         )
         self._panel_rect = self._morph.panel
@@ -379,13 +386,19 @@ class BallWindow(QWidget):
             path = QPainterPath()
             radius = min(frame.corner, rect.h / 2)
             path.addRoundedRect(body, radius, radius)
-            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setPen(QPen(self.theme.outline, self.theme.outline_width))
             painter.setBrush(self.theme.body_outer)
-            painter.setOpacity(0.94)
             painter.drawPath(path)
-            painter.setOpacity(1.0)
             painter.setClipPath(path)
         elif frame.body:
+            # 弯折阶段球盘必须还在。只画环带的话，点下去的瞬间中间会突然空掉
+            # ——球「啪」地变成一圈细环再摊开，看起来像坏了。
+            if frame.ball_alpha > 0.01:
+                center = QPointF(spec.cx - self._origin.x(), spec.cy - self._origin.y())
+                painter.setOpacity(frame.ball_alpha)
+                self._paint_disc(painter, center, spec.radius)
+                painter.setOpacity(1.0)
+
             path = QPainterPath(at(frame.body[0]))
             for point in frame.body[1:]:
                 path.lineTo(at(point))
@@ -395,8 +408,8 @@ class BallWindow(QWidget):
             painter.drawPath(path)
 
         for points, color, alpha in (
-            (frame.track, self.theme.track, 0.22),
-            (frame.red, self.theme.accent_mid if not self._fallback else self.theme.text_muted, 1.0),
+            (frame.track, self.theme.track, 1.0),
+            (frame.red, self.theme.text_muted if self._fallback else self.theme.accent, 1.0),
         ):
             if len(points) < 2:
                 continue
@@ -415,11 +428,7 @@ class BallWindow(QWidget):
 
         if frame.ball_alpha > 0.01:
             painter.setOpacity(frame.ball_alpha)
-            font = QFont()
-            font.setFamilies(list(self.theme.font_families))
-            font.setPixelSize(self.theme.percent_px)
-            font.setWeight(QFont.Weight.DemiBold)
-            painter.setFont(font)
+            painter.setFont(self._percent_font)
             painter.setPen(self.theme.text)
             box = QRectF(
                 spec.cx - spec.radius - self._origin.x(),
@@ -431,12 +440,38 @@ class BallWindow(QWidget):
             painter.setOpacity(1.0)
 
     def _paint_body(self, painter: QPainter, center: QPointF, radius: float) -> None:
+        theme = self.theme
+
+        # 阴影先画，球体盖在上面：三层同心圆由外到内加深，读起来像一层柔光。
+        painter.setPen(Qt.PenStyle.NoPen)
+        for spread, alpha in theme.shadow_layers:
+            color = QColor(theme.shadow)
+            color.setAlpha(alpha)
+            painter.setBrush(color)
+            painter.drawEllipse(
+                QPointF(center.x(), center.y() + theme.shadow_offset),
+                radius + spread,
+                radius + spread,
+            )
+
+        self._paint_disc(painter, center, radius)
+
+    def _paint_disc(self, painter: QPainter, center: QPointF, radius: float) -> None:
+        """盘面本身：径向渐变 + 内沿描边。阴影不在这里，形变中途不跟着跑。"""
+        theme = self.theme
         gradient = QRadialGradient(center, radius)
-        gradient.setColorAt(0.0, self.theme.body_inner)
-        gradient.setColorAt(1.0, self.theme.body_outer)
+        gradient.setColorAt(0.0, theme.body_inner)
+        gradient.setColorAt(1.0, theme.body_outer)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(gradient)
         painter.drawEllipse(center, radius, radius)
+
+        # 描边画在球内沿（半径减半个线宽），画在中心会向外多出半像素，
+        # 125%/150% 缩放下更容易糊成两像素灰边。
+        painter.setPen(QPen(theme.outline, theme.outline_width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        inset = radius - theme.outline_width / 2
+        painter.drawEllipse(center, inset, inset)
 
     def _ring_rect(self, center: QPointF) -> QRectF:
         r = self.theme.neutral_radius
@@ -460,7 +495,7 @@ class BallWindow(QWidget):
         if ratio <= 0.0:
             return
 
-        pen = QPen(self._arc_brush(center), theme.ring_width)
+        pen = QPen(theme.text_muted if self._fallback else theme.accent, theme.ring_width)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         painter.setPen(pen)
         if ratio >= 0.999:
@@ -469,23 +504,9 @@ class BallWindow(QWidget):
         else:
             painter.drawArc(rect, 90 * 16, int(round(-360 * 16 * ratio)))
 
-    def _arc_brush(self, center: QPointF):
-        theme = self.theme
-        if self._fallback:
-            return QColor(theme.text_muted)
-        gradient = QConicalGradient(center, 90.0)
-        gradient.setColorAt(0.0, theme.accent_start)
-        gradient.setColorAt(0.55, theme.accent_mid)
-        gradient.setColorAt(1.0, theme.accent_end)
-        return gradient
-
     def _paint_text(self, painter: QPainter, center: QPointF) -> None:
         theme = self.theme
-        font = QFont()
-        font.setFamilies(list(theme.font_families))
-        font.setPixelSize(theme.percent_px)
-        font.setWeight(QFont.Weight.DemiBold)
-        painter.setFont(font)
+        painter.setFont(self._percent_font)
         painter.setPen(theme.text_muted if self._fallback else theme.text)
         box = QRectF(
             center.x() - theme.ball_radius,

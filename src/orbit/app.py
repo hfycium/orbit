@@ -83,7 +83,7 @@ def _tray_icon() -> QIcon:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(DARK.accent_mid)
+    painter.setBrush(DARK.accent)
     painter.drawEllipse(4, 4, 24, 24)
     painter.setBrush(DARK.body_outer)
     painter.drawEllipse(9, 9, 14, 14)
